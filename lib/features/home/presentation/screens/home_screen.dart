@@ -6,6 +6,8 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../../../../core/services/camera_service.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
+
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -16,52 +18,65 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   int _currentIndex = 0;
-  CameraController? _controller;
+  late CameraService _cameraService;
   final ImagePicker _picker = ImagePicker();
-  List<XFile> _selectedImages= [];
+  List<XFile> _selectedImages = [];
   bool _isCameraReady = false;
+  String? _lastPhotoPath;
 
   @override
   void initState() {
     super.initState();
-    _initializeCamera();
+    _initCamera();
   }
 
-  Future<void> _initializeCamera() async {
-    final cameraService = CameraService();
-    if (!cameraService.hasCameras) return;
+  Future<void> _initCamera() async {
+    _cameraService = CameraService();
+    final granted = await _cameraService.ensurePermissions();
+    if (!granted) {
+      debugPrint('Kamera izni verilmedi.');
+      if (mounted) {
+        setState(() {
+          _currentIndex = 1;
+        });
+      }
+      return;
+    }
 
-    final status = await Permission.camera.request();
-    if (status.isGranted) {
-      _controller = CameraController(
-        cameraService.cameras[0],
-        ResolutionPreset.high,
-        enableAudio: false,
-      );
-
-      try {
-        await _controller!.initialize();
+    try {
+      await _cameraService.initialize();
+      if (_cameraService.hasCameras && _cameraService.isInitialized) {
         if (mounted) {
           setState(() {
             _isCameraReady = true;
           });
         }
-      } catch (e) {
-        debugPrint('Camera initialization error: $e');
+      } else {
+        debugPrint('Hiç kamera bulunamadı.');
+        if (mounted) {
+          setState(() {
+            _currentIndex = 1;
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('Kamera başlatma hatası: $e');
+      if (mounted) {
+        setState(() {
+          _currentIndex = 1;
+        });
       }
     }
   }
-
   @override
   void dispose() {
-    _controller?.dispose();
+    _cameraService.dispose();
     super.dispose();
   }
 
   Future<void> _pickImages() async {
-
     try {
-     final List<XFile>? images = await _picker.pickMultiImage();
+      final List<XFile>? images = await _picker.pickMultiImage();
       if (images != null) {
         setState(() {
           _selectedImages = images;
@@ -89,16 +104,48 @@ class _HomeScreenState extends State<HomeScreen> {
       body: Stack(
         children: [
           _buildBody(),
+          if (_currentIndex == 0)
+            Positioned(
+                  bottom: 400.h,
+                  left: 0,
+                  right: 0,
+                  child: Center(
+                child: GestureDetector(
+                  onTap: () async {
+              try {
+                final path = await _cameraService.takePictureAndSave();
+                setState(() {
+                  _lastPhotoPath = path;
+                  _currentIndex = 1; // optionally switch to gallery view to show saved image
+                  _selectedImages = [XFile(path)]; // show the taken photo in gallery preview
+                });
+              } catch (e) {
+                debugPrint('Fotoğraf çekme hatası: $e');
+              }
+            },
+            child: Container(
+              width: 72.w,
+              height: 72.w,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white, width: 4),
+                color: Colors.white.withValues(alpha: 0.1),
+              ),
+              child: const Icon(Icons.camera_alt, color: Colors.white),
+            ),
+          ),
+        ),
+      ),
           Positioned(
-            left: 20,
-            right: 20,
-            bottom: 30,
+            left: 20.w,
+            right: 20.w,
+            bottom: 50.h,
             child: _buildCustomNavBar(),
           ),
           Positioned(
-            top: MediaQuery.of(context).padding.top + 10,
-            left: 20,
-            right: 20,
+            top: MediaQuery.paddingOf(context).bottom + 20.h,
+            left: 20.w,
+            right: 20.w,
             child: _buildHeader(),
           ),
         ],
@@ -114,7 +161,7 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       }
       return SizedBox.expand(
-        child: CameraPreview(_controller!),
+        child: CameraPreview(_cameraService.controller!),
       );
     } else {
       return Container(
@@ -130,7 +177,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildEmptyGallery() {
     return Column(
-
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         const Icon(LucideIcons.image, size: 64, color: Colors.white24),
@@ -152,20 +198,17 @@ class _HomeScreenState extends State<HomeScreen> {
       child: ClipRRect(
         borderRadius: BorderRadius.circular(20),
         child: GridView.builder(
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: 2,
             mainAxisSpacing: 8,
             crossAxisSpacing: 8,
             childAspectRatio: 1,
-
           ),
           itemCount: _selectedImages.length,
-          itemBuilder: (context, index)
-          {
+          itemBuilder: (context, index) {
             final img = _selectedImages[index];
             return GestureDetector(
-              onTap: (){
-                //Tam Ekran Önizleme
+              onTap: () {
                 Navigator.of(context).push(MaterialPageRoute(builder: (_) {
                   return Scaffold(
                     appBar: AppBar(backgroundColor: Colors.black),
@@ -179,8 +222,7 @@ class _HomeScreenState extends State<HomeScreen> {
               child: Hero(
                 tag: img.path,
                 child: ClipRRect(
-                    borderRadius: BorderRadius.circular(16.0),
-
+                  borderRadius: BorderRadius.circular(16.0),
                   child: Image.file(
                     File(img.path),
                     fit: BoxFit.cover,
@@ -194,25 +236,21 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+//_headeraction buildheaderın içine alınacak!!!
   Widget _buildHeader() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        _headerAction(LucideIcons.settings),
-        Text(
-          'SLIP SCANNER',
-          style: GoogleFonts.montserrat(
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-            letterSpacing: 1,
-            color: Colors.white,
-          ),
-        ),
-        _headerAction(LucideIcons.history),
-      ],
+    return Container(
+      padding: const EdgeInsets.all(2),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children:<Widget>[
+          _headerAction(LucideIcons.settings),
+          _headerAction(LucideIcons.history),
+        ],
+      ),
+
+
     );
   }
-
   Widget _headerAction(IconData icon) {
     return Container(
       padding: const EdgeInsets.all(8),
@@ -232,7 +270,7 @@ class _HomeScreenState extends State<HomeScreen> {
         borderRadius: BorderRadius.circular(25),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.3),
+            color: Colors.black.withValues(alpha:0.3),
             blurRadius: 20,
             offset: const Offset(0, 10),
           ),

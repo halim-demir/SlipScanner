@@ -6,8 +6,8 @@ import 'core/services/camera_service.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Servisleri Yükler
-  await CameraService().initialize();
+  // Bildirim Çubuğu Gizleme
+  await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
 
   // Dikey Sabitleme
   await SystemChrome.setPreferredOrientations([
@@ -16,3 +16,4 @@ Future<void> main() async {
 
   runApp(const SlipScannerApp());
 }
+
